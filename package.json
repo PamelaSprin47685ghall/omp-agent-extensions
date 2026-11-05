@@ -1,0 +1,10 @@
+{
+  "name": "omp-agent-extensions",
+  "version": "0.1.0",
+  "description": "omp extensions that compose pi-context and pi-goal-x",
+  "private": true,
+  "dependencies": {
+    "pi-context": "2.3.0",
+    "pi-goal-x": "0.34.1"
+  }
+}
