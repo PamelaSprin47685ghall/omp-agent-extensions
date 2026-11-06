@@ -20,6 +20,19 @@ Both files are loaded directly by omp; there is no build step.
 
 Compatibility shim for `pi-goal-x` 0.34.1 against omp 18.16.0. `pi-goal-x` calls the two-argument `Editor` constructor from `pi-tui` 1.5.0, while omp's bundled `@oh-my-pi/pi-tui` 18.16.0 takes one argument. The shim gives the TUI class the `EditorTheme` surface the newer `Editor` reads, rebuilding each getter from the host's `getEditorTheme()` so theme switches take effect on the next read.
 
+### `tool-call-gate.ts`
+
+Adds two required arguments to every tool schema in each provider request:
+
+- `how-many-more-workers-are-allowed-without-hitting-mythical-man-month` — integer.
+- `must-think-in` — string enum with the single value `zh-cn`.
+
+The `before_provider_request` hook injects the arguments into the tool
+definitions for OpenAI-compatible, Anthropic, Google, and Bedrock request
+shapes. The model therefore sees them as required. The `tool_call` hook removes
+them from the execution input, so built-in tools keep their original argument
+contracts.
+
 ## Install
 
 Requires omp 18.16.0, `pi-context` 2.3.0, and `pi-goal-x` 0.34.1.
