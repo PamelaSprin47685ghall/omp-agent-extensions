@@ -5,7 +5,11 @@ Local extensions for omp that compose two Pi extensions:
 - [`pi-context`](https://www.npmjs.com/package/pi-context) — agentic context management
 - [`pi-goal-x`](https://www.npmjs.com/package/pi-goal-x) — persistent goals
 
-Both files are loaded directly by omp; there is no build step.
+All three extension files are loaded directly by omp; there is no build step.
+
+## Design notes
+
+[`README.html`](README.html) is a self-contained Chinese design document (v1.0, 2026-11) written for non-programmers and new contributors. It explains why `vibe-workers.ts` is built this way, including the reasoning behind its context management, host adaptation, and gates. Download it and open it in a browser to read the formatted version; GitHub shows only its source.
 
 ## Extensions
 
