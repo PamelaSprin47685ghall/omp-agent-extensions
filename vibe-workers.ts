@@ -283,10 +283,11 @@ interface GoalToolGuardInput {
 
 type GoalToolGuard = (input: GoalToolGuardInput) => string | undefined;
 
-// Slice D sets both after it replaces the completion auditor dependency. Until
-// then, the gated tools fail closed instead of accepting an uninstalled gate.
-let manualAcceptanceAuditorInstalled = false;
-let installedManualAcceptanceAuditor: ((args: GoalAuditorArgs) => Promise<GoalAuditorResult>) | undefined;
+// omp evaluates this module once per process but rebinds the factory to every
+// session, including subagents. Each binding gets its own GoalCore, so the
+// installed auditor must be tracked per function object, not in one slot that
+// the newest binding would overwrite.
+const installedManualAcceptanceAuditors = new WeakSet<object>();
 
 /**
  * Structured yield contract for the visible auditor. `runSubprocess` validates
@@ -1288,6 +1289,21 @@ function updateManualAcceptanceGuard(input: GoalToolGuardInput): string | undefi
 	return undefined;
 }
 
+/** Install the auditor on one GoalCore. Safe to call again for the same core. */
+function installManualAcceptanceAuditorOnCore(core: GoalCoreHandle): boolean {
+	const dependencies = core.dependencies;
+	if (dependencies === null || typeof dependencies !== "object") return false;
+	const current = dependencies.runCompletionAuditor;
+	if (typeof current === "function" && installedManualAcceptanceAuditors.has(current)) return true;
+	// Replace only this dependency. The rest of goal-x's completion flow stays.
+	const auditor = (auditArgs: GoalAuditorArgs) =>
+		runVisibleManualAcceptanceAuditor(core, auditArgs);
+	dependencies.runCompletionAuditor = auditor;
+	if (dependencies.runCompletionAuditor !== auditor) return false;
+	installedManualAcceptanceAuditors.add(auditor);
+	return true;
+}
+
 function installManualAcceptanceAuditor(goal: GoalFacadeResult): void {
 	const core = goal.api._goalCore as GoalCoreHandle | undefined;
 	if (core === null || typeof core !== "object") {
@@ -1303,18 +1319,11 @@ function installManualAcceptanceAuditor(goal: GoalFacadeResult): void {
 		);
 		return;
 	}
-	// Replace only this dependency. The rest of goal-x's completion flow stays.
-	const auditor = (auditArgs: GoalAuditorArgs) =>
-		runVisibleManualAcceptanceAuditor(core, auditArgs);
-	dependencies.runCompletionAuditor = auditor;
-	if (dependencies.runCompletionAuditor !== auditor) {
+	if (!installManualAcceptanceAuditorOnCore(core)) {
 		console.error(
 			"vibe-workers: the visible manual acceptance auditor replacement did not stick",
 		);
-		return;
 	}
-	installedManualAcceptanceAuditor = auditor;
-	manualAcceptanceAuditorInstalled = true;
 }
 
 async function runVisibleManualAcceptanceAuditor(
@@ -2319,12 +2328,24 @@ function createGoalFacade(pi: ExtensionAPI): GoalFacadeResult {
 								? (core as GoalCoreHandle).dependencies
 								: undefined;
 						if (
+							typeof core === "object" &&
+							core !== null &&
+							typeof dependencies === "object" &&
+							dependencies !== null &&
+							(typeof dependencies.runCompletionAuditor !== "function" ||
+								!installedManualAcceptanceAuditors.has(dependencies.runCompletionAuditor))
+						) {
+							// A later session binding may have replaced this core's auditor
+							// slot; retry once for this core before failing closed.
+							installManualAcceptanceAuditorOnCore(core as GoalCoreHandle);
+						}
+						if (
 							typeof core !== "object" ||
 							core === null ||
 							typeof dependencies !== "object" ||
 							dependencies === null ||
-							!manualAcceptanceAuditorInstalled ||
-							dependencies.runCompletionAuditor !== installedManualAcceptanceAuditor
+							typeof dependencies.runCompletionAuditor !== "function" ||
+							!installedManualAcceptanceAuditors.has(dependencies.runCompletionAuditor)
 						) {
 							throw new Error(
 								`manual acceptance gate unavailable: the visible auditor is not installed; refusing gated tool ${tool.name}.`,
@@ -2491,7 +2512,8 @@ export default function vibeWorkers(pi: ExtensionAPI) {
 		}
 	}
 	pi.on("session_start", (_event, ctx) => {
-		if (!manualAcceptanceAuditorInstalled) installManualAcceptanceAuditor(goal);
+		// Idempotent: the core may already hold this binding's auditor.
+		installManualAcceptanceAuditor(goal);
 		void goal.startSession(ctx);
 	});
 }
